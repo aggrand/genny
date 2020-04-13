@@ -95,55 +95,29 @@ private:
  */
 class StreamInterfaceImpl {
 public:
+
     StreamInterfaceImpl(const std::string& name, const ActorId& actorId)
         : _name{name},
           _actorId{actorId},
-          _options{},
           _response{},
-          _context{},
-          _stream{_stub->StreamEvents(&_context, &_response)} {
-        _options.set_no_compression().set_buffer_hint();
-    }
+          _status{},
+          _cq{} {}
 
     void write(const poplar::EventMetrics& event) {
-        auto success = _stream->Write(event, _options);
-
-        if (!success) {
-            std::ostringstream os;
-            os << "Failed to write to stream for operation name " << _name << " and actor ID "
-               << _actorId << ". EventMetrics object: " << event.ShortDebugString();
-
-            BOOST_THROW_EXCEPTION(PoplarRequestError(os.str()));
-        }
+        grpc::ClientContext _context;
+        auto rpc = _stub->AsyncSendEvent(&_context, event, &_cq);
     }
 
     ~StreamInterfaceImpl() {
-        if (!_stream) {
-            BOOST_LOG_TRIVIAL(error) << "Tried to close gRPC stream for operation name " << _name
-                                     << " and actor ID " << _actorId << ", but no stream existed.";
-            return;
-        }
-        if (!_stream->WritesDone()) {
-            BOOST_LOG_TRIVIAL(warning)
-                << "Closing gRPC stream for operation name " << _name << " and actor ID "
-                << _actorId << ", but not all writes completed.";
-        }
-        auto status = _stream->Finish();
-        if (!status.ok()) {
-            BOOST_LOG_TRIVIAL(error)
-                << "Problem closing grpc stream for operation name " << _name << " and actor ID "
-                << _actorId << ": " << _context.debug_error_string();
-        }
     }
 
 private:
     std::string _name;
     ActorId _actorId;
-    CollectorStubInterface _stub;
-    grpc::WriteOptions _options;
     poplar::PoplarResponse _response;
-    grpc::ClientContext _context;
-    std::unique_ptr<grpc::ClientWriterInterface<poplar::EventMetrics>> _stream;
+    CollectorStubInterface _stub;
+    grpc::Status _status;
+    grpc::CompletionQueue _cq;
 };
 
 
